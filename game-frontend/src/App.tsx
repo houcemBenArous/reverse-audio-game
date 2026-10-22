@@ -52,6 +52,7 @@ function App(): React.ReactElement {
             onGoToResultScreen={game.onGoToResultScreen}
             onClearError={game.onClearError}
             onNewGame={game.onNewGame}
+            onGoBack={game.onGoBack}
           />
         )}
 

@@ -10,5 +10,6 @@ export {
   advanceToPhase4,
   advanceToResult,
   revealSecret,
+  goBackOnePhase,
   resetGame,
 } from './gameState';

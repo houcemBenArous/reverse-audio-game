@@ -11,6 +11,7 @@ import {
   incrementListenCount,
   getPhaseNumber,
   getPlayerLabel,
+  goBackOnePhase,
 } from '../../src/game/gameState';
 
 describe('createInitialGameState', () => {
@@ -114,5 +115,36 @@ describe('getPlayerLabel', () => {
   it('returns French labels', () => {
     expect(getPlayerLabel('player1')).toBe('Joueur 1');
     expect(getPlayerLabel('player2')).toBe('Joueur 2');
+  });
+});
+
+describe('goBackOnePhase', () => {
+  it('phase2 → phase1, switches back to player1, resets listenCount', () => {
+    const s2 = { ...createInitialGameState(), phase: 'phase2' as const, activePlayer: 'player2' as const, listenCount: 3 };
+    const back = goBackOnePhase(s2);
+    expect(back.phase).toBe('phase1');
+    expect(back.activePlayer).toBe('player1');
+    expect(back.listenCount).toBe(0);
+  });
+
+  it('phase3 → phase2', () => {
+    const s3 = { ...createInitialGameState(), phase: 'phase3' as const, listenCount: 2 };
+    const back = goBackOnePhase(s3);
+    expect(back.phase).toBe('phase2');
+    expect(back.listenCount).toBe(2); // preserved so player can re-listen freely
+  });
+
+  it('phase4 → phase3', () => {
+    const s4 = { ...createInitialGameState(), phase: 'phase4' as const };
+    expect(goBackOnePhase(s4).phase).toBe('phase3');
+  });
+
+  it('phase1 stays at phase1 (no further back)', () => {
+    const s1 = { ...createInitialGameState(), phase: 'phase1' as const };
+    expect(goBackOnePhase(s1).phase).toBe('phase1');
+  });
+
+  it('home stays at home', () => {
+    expect(goBackOnePhase(createInitialGameState()).phase).toBe('home');
   });
 });

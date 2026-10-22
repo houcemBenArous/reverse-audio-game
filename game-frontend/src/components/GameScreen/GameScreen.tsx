@@ -35,6 +35,7 @@ type GameScreenProps = Pick<
   | 'onGoToResultScreen'
   | 'onClearError'
   | 'onNewGame'
+  | 'onGoBack'
 >;
 
 export function GameScreen(props: GameScreenProps): React.ReactElement {
@@ -65,13 +66,36 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
     onGoToResultScreen,
     onClearError,
     onNewGame,
+    onGoBack,
   } = props;
 
   const { phase } = gameState;
 
+  // Back button is available from phase2 onward (can't go back from phase1)
+  const canGoBack = phase === 'phase2' || phase === 'phase3' || phase === 'phase4';
+
   return (
     <main className={styles.container}>
       <header className={styles.header}>
+        {/* Back navigation */}
+        <div className={styles.headerNav}>
+          {canGoBack && (
+            <button
+              type="button"
+              className={styles.backButton}
+              onClick={onGoBack}
+              aria-label="Retourner à l'étape précédente"
+              disabled={isRecording || isProcessing}
+            >
+              ← Retour
+            </button>
+          )}
+          {!canGoBack && <div className={styles.headerNavSpacer} />}
+          <Button variant="ghost" size="sm" onClick={onNewGame} aria-label="Nouvelle partie">
+            ✕ Quitter
+          </Button>
+        </div>
+
         <ProgressBar phase={phase} />
         <p className={styles.playerBadge}>
           <span className={styles.playerDot} aria-hidden="true" />
@@ -298,12 +322,6 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
         )}
 
       </div>
-
-      <footer className={styles.footer}>
-        <Button variant="ghost" size="sm" onClick={onNewGame}>
-          Nouvelle partie
-        </Button>
-      </footer>
     </main>
   );
 }

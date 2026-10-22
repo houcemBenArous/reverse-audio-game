@@ -17,6 +17,7 @@ import {
   advanceToPhase4,
   advanceToResult,
   revealSecret,
+  goBackOnePhase,
   resetGame,
 } from '@game/gameState';
 import {
@@ -101,6 +102,15 @@ export interface UseGameReturn {
   onListenOriginal: () => Promise<void>;
   onNewGame: () => void;
   onClearError: () => void;
+  /**
+   * Go back one phase.
+   * Clears audio assets that belong to the current phase so the player
+   * can re-record or re-listen from a clean state.
+   * - phase2 → phase1 : clears originalRecording + reversedOriginal
+   * - phase3 → phase2 : clears imitationRecording (keeps original)
+   * - phase4 → phase3 : clears reversedImitation (keeps imitation)
+   */
+  onGoBack: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +398,66 @@ export function useGame(): UseGameReturn {
     setAudioError(null);
   }, []);
 
+  /**
+   * Go back one phase and clear the audio assets that are no longer valid.
+   *
+   * Asset cleanup rules:
+   *   phase2 → phase1 : Player 1 must re-record → clear original + reversed original
+   *   phase3 → phase2 : Player 2 goes back to listen → clear imitation only
+   *   phase4 → phase3 : Player 2 re-records imitation → clear reversedImitation + pending
+   *
+   * If a recording is currently in progress it is stopped first.
+   */
+  const onGoBack = useCallback(() => {
+    // Safety: if mic is active, abandon the recording before going back
+    if (stopRecordingRef.current) {
+      // Fire-and-forget stop so the stream is released; we ignore the result
+      stopRecordingRef.current().catch(() => undefined);
+      stopRecordingRef.current = null;
+    }
+    setIsRecording(false);
+    stopPlayback();
+    setAudioError(null);
+
+    setGameState((prev) => {
+      const next = goBackOnePhase(prev);
+
+      // Clear assets that belong to the phase we are leaving
+      setAudioAssets((assets) => {
+        switch (prev.phase) {
+          case 'phase2':
+            // Going back to phase1 — player 1 re-records everything
+            return {
+              ...assets,
+              originalRecording: null,
+              reversedOriginal: null,
+            };
+          case 'phase3':
+            // Going back to phase2 — keep original, clear imitation
+            return {
+              ...assets,
+              imitationRecording: null,
+              reversedImitation: null,
+            };
+          case 'phase4':
+            // Going back to phase3 — keep imitation, only clear reversed result
+            return {
+              ...assets,
+              reversedImitation: null,
+            };
+          default:
+            return assets;
+        }
+      });
+
+      // Also clear any pending confirmation state
+      setPendingP1Asset(null);
+      setPendingP2Asset(null);
+
+      return next;
+    });
+  }, [stopPlayback]);
+
   return {
     gameState,
     audioAssets,
@@ -419,5 +489,6 @@ export function useGame(): UseGameReturn {
     onListenOriginal,
     onNewGame,
     onClearError,
+    onGoBack,
   };
 }

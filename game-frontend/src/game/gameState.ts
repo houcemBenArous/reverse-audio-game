@@ -119,6 +119,47 @@ export function revealSecret(state: GameState): GameState {
 }
 
 /**
+ * Goes back one phase.
+ *
+ * Allowed transitions:
+ *   phase2 → phase1  (Player 1 active again, listen count reset)
+ *   phase3 → phase2  (Player 2 listens again)
+ *   phase4 → phase3  (Player 2 re-records imitation)
+ *   phase4 → phase2  (Player 2 re-listens — handled by calling goBack twice)
+ *   phase4 → phase1  (Player 1 re-records — handled by calling goBack three times)
+ *
+ * The audio assets that become stale after going back are cleared by useGame,
+ * not here (this function is pure and has no knowledge of audio state).
+ */
+export function goBackOnePhase(state: GameState): GameState {
+  switch (state.phase) {
+    case 'phase2':
+      return {
+        ...state,
+        phase: 'phase1',
+        activePlayer: 'player1',
+        listenCount: 0,
+      };
+    case 'phase3':
+      return {
+        ...state,
+        phase: 'phase2',
+        activePlayer: 'player2',
+        // Keep listenCount so Player 2 can re-listen without the "must listen once" gate
+      };
+    case 'phase4':
+      return {
+        ...state,
+        phase: 'phase3',
+        activePlayer: 'player2',
+      };
+    default:
+      // phase1 / home / result — no further back
+      return state;
+  }
+}
+
+/**
  * Resets the entire game back to home.
  */
 export function resetGame(): GameState {

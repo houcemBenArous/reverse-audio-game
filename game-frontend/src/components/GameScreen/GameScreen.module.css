@@ -14,6 +14,44 @@
   gap: var(--space-sm);
 }
 
+/* Top navigation row: back ← … → quit */
+.headerNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.headerNavSpacer {
+  /* occupies same space as backButton when hidden, keeps layout balanced */
+  width: 5rem;
+}
+
+.backButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.backButton:hover:not(:disabled) {
+  background: var(--color-surface-alt);
+}
+
+.backButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .playerBadge {
   display: flex;
   align-items: center;
@@ -82,12 +120,6 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   text-align: center;
-}
-
-.footer {
-  display: flex;
-  justify-content: center;
-  padding-bottom: var(--space-md);
 }
 
 /* Confirm / retake box shown after stopping a recording */
