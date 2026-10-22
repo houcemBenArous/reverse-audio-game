@@ -147,4 +147,13 @@ describe('goBackOnePhase', () => {
   it('home stays at home', () => {
     expect(goBackOnePhase(createInitialGameState()).phase).toBe('home');
   });
+
+  it('goBackOnePhase is a pure function — it only changes phase/player/listens, not audio data', () => {
+    // Audio data lives in useGame, not in GameState.
+    // This test documents that the state machine contains no audio references.
+    const s2 = { ...createInitialGameState(), phase: 'phase2' as const };
+    const back = goBackOnePhase(s2);
+    // GameState has exactly these four keys — none of them are audio buffers
+    expect(Object.keys(back)).toEqual(['phase', 'activePlayer', 'secretRevealed', 'listenCount']);
+  });
 });

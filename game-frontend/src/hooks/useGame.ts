@@ -3,6 +3,16 @@
  *
  * Central React hook that orchestrates the entire game session.
  * Connects game state transitions, audio recording, decoding, reversal and playback.
+ *
+ * DATA RETENTION POLICY
+ * ─────────────────────
+ * Going back one phase NEVER deletes existing audio data.
+ * Data is only cleared when the player explicitly chooses to re-record
+ * (by pressing "Recommencer" in the confirm panel).
+ *
+ * When the player arrives back at phase 1 with an existing recording,
+ * GameScreen restores the confirm panel so they can keep it or replace it.
+ * Same applies to phase 3 with an existing imitation.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -52,44 +62,45 @@ export interface UseGameReturn {
   compatibilityError: string | null;
 
   /**
-   * Phase 1 confirmation state.
-   * After Player 1 stops recording, the recording is held here for preview
-   * before being confirmed. Null means no pending recording.
+   * Phase 1 — pending confirmation slot.
+   *
+   * Lifecycle:
+   *   • Set when Player 1 stops the mic (preview before confirming).
+   *   • Restored to the confirmed originalRecording when going back from phase 2,
+   *     so the player can re-listen and choose to keep it or replace it.
+   *   • Cleared only when the player explicitly presses "Recommencer".
    */
   pendingP1Asset: AudioAsset | null;
+
   /**
-   * Phase 3 confirmation state — same pattern for Player 2's imitation.
+   * Phase 3 — pending confirmation slot (same pattern as above).
    */
   pendingP2Asset: AudioAsset | null;
 
   // --- Actions ---
   onStartGame: () => void;
 
-  /** Phase 1: record */
+  /** Phase 1 */
   onStartRecordingP1: () => Promise<void>;
-  /** Phase 1: stop mic — moves recording into pendingP1Asset for preview */
   onStopRecordingP1: () => Promise<void>;
-  /** Phase 1: listen to the pending recording before confirming */
   onListenPendingP1: () => Promise<void>;
-  /** Phase 1: discard pending recording and re-record */
+  /** Discard pending P1 recording and show the record button again. */
   onRetakeRecordingP1: () => void;
-  /** Phase 1: accept pending recording, reverse it, advance to phase 2 */
+  /** Accept pending P1 recording, reverse it, advance to phase 2. */
   onConfirmRecordingP1: () => Promise<void>;
 
-  /** Phase 2: listen reversed */
+  /** Phase 2 */
   onListenReversed: () => Promise<void>;
   onStopListening: () => void;
   onReadyToImitate: () => void;
 
-  /** Phase 3: record imitation */
+  /** Phase 3 */
   onStartRecordingP2: () => Promise<void>;
-  /** Phase 3: stop mic — moves imitation into pendingP2Asset for preview */
   onStopRecordingP2: () => Promise<void>;
-  /** Phase 3: listen to the pending imitation before confirming */
   onListenPendingP2: () => Promise<void>;
-  /** Phase 3: discard pending imitation and re-record */
+  /** Discard pending P2 imitation and show the record button again. */
   onRetakeRecordingP2: () => void;
-  /** Phase 3: accept pending imitation, reverse it, advance to phase 4 */
+  /** Accept pending P2 imitation, reverse it, advance to phase 4. */
   onConfirmRecordingP2: () => Promise<void>;
 
   /** Phase 4 */
@@ -102,13 +113,16 @@ export interface UseGameReturn {
   onListenOriginal: () => Promise<void>;
   onNewGame: () => void;
   onClearError: () => void;
+
   /**
-   * Go back one phase.
-   * Clears audio assets that belong to the current phase so the player
-   * can re-record or re-listen from a clean state.
-   * - phase2 → phase1 : clears originalRecording + reversedOriginal
-   * - phase3 → phase2 : clears imitationRecording (keeps original)
-   * - phase4 → phase3 : clears reversedImitation (keeps imitation)
+   * Go back one phase — navigation only, no data loss.
+   *
+   * • If the player goes back to a phase where they already have a recording,
+   *   the confirm panel is shown again so they can keep it or replace it.
+   * • An active microphone recording is safely abandoned before navigating.
+   * • Audio data is NEVER deleted by this action.
+   *
+   * Data is only cleared when the player explicitly presses "Recommencer".
    */
   onGoBack: () => void;
 }
@@ -137,18 +151,20 @@ export function useGame(): UseGameReturn {
   const [isPlaying, setIsPlaying] = useState(false);
   const [compatibilityError, setCompatibilityError] = useState<string | null>(null);
 
-  // Pending recordings waiting for player confirmation before advancing
   const [pendingP1Asset, setPendingP1Asset] = useState<AudioAsset | null>(null);
   const [pendingP2Asset, setPendingP2Asset] = useState<AudioAsset | null>(null);
 
-  const stopRecordingRef = useRef<(() => Promise<{ blob: Blob; durationSeconds: number }>) | null>(null);
+  const stopRecordingRef = useRef<
+    (() => Promise<{ blob: Blob; durationSeconds: number }>) | null
+  >(null);
   const playerRef = useRef<Player | null>(null);
 
-  // Check browser compatibility on mount
+  // ── Browser compatibility check ──────────────────────────────────────────
+
   useEffect(() => {
     if (!isWebAudioSupported()) {
       setCompatibilityError(
-        "Votre navigateur ne supporte pas la Web Audio API. Veuillez utiliser Chrome, Firefox, Edge ou Safari récent.",
+        'Votre navigateur ne supporte pas la Web Audio API. Veuillez utiliser Chrome, Firefox, Edge ou Safari récent.',
       );
     } else if (!isRecordingSupported()) {
       setCompatibilityError(
@@ -157,7 +173,8 @@ export function useGame(): UseGameReturn {
     }
   }, []);
 
-  // Create player once, dispose on unmount
+  // ── Player lifecycle ──────────────────────────────────────────────────────
+
   useEffect(() => {
     playerRef.current = createPlayer((s) => {
       setIsPlaying(s === 'playing');
@@ -168,6 +185,8 @@ export function useGame(): UseGameReturn {
       closeAudioContext();
     };
   }, []);
+
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
   const clearAllAssets = useCallback(() => {
     setAudioAssets(emptyAssets);
@@ -180,7 +199,19 @@ export function useGame(): UseGameReturn {
     setIsPlaying(false);
   }, []);
 
-  async function blobToAsset(blob: Blob, durationSeconds: number): Promise<AudioAsset> {
+  /** Safely abandon an in-progress recording and release the mic. */
+  const abandonRecording = useCallback(() => {
+    if (stopRecordingRef.current) {
+      stopRecordingRef.current().catch(() => undefined);
+      stopRecordingRef.current = null;
+    }
+    setIsRecording(false);
+  }, []);
+
+  async function blobToAsset(
+    blob: Blob,
+    durationSeconds: number,
+  ): Promise<AudioAsset> {
     const ctx = getAudioContext();
     const buffer = await decodeAudioBlob(blob, ctx);
     validateAudioBuffer(buffer);
@@ -197,9 +228,7 @@ export function useGame(): UseGameReturn {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // Actions
-  // ---------------------------------------------------------------------------
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   const onStartGame = useCallback(() => {
     stopPlayback();
@@ -208,12 +237,13 @@ export function useGame(): UseGameReturn {
     setGameState((s) => startGame(s));
   }, [stopPlayback, clearAllAssets]);
 
-  // --- Phase 1 ---
+  // ── Phase 1 ──────────────────────────────────────────────────────────────
 
   const onStartRecordingP1 = useCallback(async () => {
     setAudioError(null);
     stopPlayback();
-    // Discard any previous pending recording when starting fresh
+    // Clear only the pending slot — NOT the confirmed asset (if any).
+    // The confirmed asset will be overwritten only after the player confirms.
     setPendingP1Asset(null);
     try {
       const recorder = createRecorder();
@@ -232,7 +262,6 @@ export function useGame(): UseGameReturn {
     try {
       const result = await stopRecordingRef.current();
       stopRecordingRef.current = null;
-      // Decode the blob so the player can preview it — but do NOT advance yet
       const asset = await blobToAsset(result.blob, result.durationSeconds);
       setPendingP1Asset(asset);
     } catch (err) {
@@ -249,9 +278,14 @@ export function useGame(): UseGameReturn {
   }, [pendingP1Asset, stopPlayback]);
 
   const onRetakeRecordingP1 = useCallback(() => {
-    // Discard the pending recording — player goes back to the record button
+    // Explicit player choice to discard — clear both pending and confirmed data.
     stopPlayback();
     setPendingP1Asset(null);
+    setAudioAssets((prev) => ({
+      ...prev,
+      originalRecording: null,
+      reversedOriginal: null,
+    }));
     setAudioError(null);
   }, [stopPlayback]);
 
@@ -260,7 +294,6 @@ export function useGame(): UseGameReturn {
     stopPlayback();
     setIsProcessing(true);
     try {
-      // Commit to the main asset slots and compute the reversal
       setAudioAssets((prev) => ({ ...prev, originalRecording: pendingP1Asset }));
       const reversed = await buildReversedAsset(pendingP1Asset);
       setAudioAssets((prev) => ({ ...prev, reversedOriginal: reversed }));
@@ -273,7 +306,7 @@ export function useGame(): UseGameReturn {
     }
   }, [pendingP1Asset, stopPlayback]);
 
-  // --- Phase 2 ---
+  // ── Phase 2 ──────────────────────────────────────────────────────────────
 
   const onListenReversed = useCallback(async () => {
     const asset = audioAssets.reversedOriginal;
@@ -292,7 +325,7 @@ export function useGame(): UseGameReturn {
     setGameState((s) => advanceToPhase3(s));
   }, [stopPlayback]);
 
-  // --- Phase 3 ---
+  // ── Phase 3 ──────────────────────────────────────────────────────────────
 
   const onStartRecordingP2 = useCallback(async () => {
     setAudioError(null);
@@ -316,7 +349,6 @@ export function useGame(): UseGameReturn {
       const result = await stopRecordingRef.current();
       stopRecordingRef.current = null;
       const asset = await blobToAsset(result.blob, result.durationSeconds);
-      // Hold in pending — do NOT advance yet
       setPendingP2Asset(asset);
     } catch (err) {
       setAudioError(err as AudioError);
@@ -334,6 +366,11 @@ export function useGame(): UseGameReturn {
   const onRetakeRecordingP2 = useCallback(() => {
     stopPlayback();
     setPendingP2Asset(null);
+    setAudioAssets((prev) => ({
+      ...prev,
+      imitationRecording: null,
+      reversedImitation: null,
+    }));
     setAudioError(null);
   }, [stopPlayback]);
 
@@ -354,7 +391,7 @@ export function useGame(): UseGameReturn {
     }
   }, [pendingP2Asset, stopPlayback]);
 
-  // --- Phase 4 ---
+  // ── Phase 4 ──────────────────────────────────────────────────────────────
 
   const onListenResult = useCallback(async () => {
     const asset = audioAssets.reversedImitation;
@@ -372,7 +409,7 @@ export function useGame(): UseGameReturn {
     setGameState((s) => advanceToResult(s));
   }, [stopPlayback]);
 
-  // --- Result ---
+  // ── Result ────────────────────────────────────────────────────────────────
 
   const onRevealSecret = useCallback(() => {
     setGameState((s) => revealSecret(s));
@@ -398,65 +435,74 @@ export function useGame(): UseGameReturn {
     setAudioError(null);
   }, []);
 
-  /**
-   * Go back one phase and clear the audio assets that are no longer valid.
-   *
-   * Asset cleanup rules:
-   *   phase2 → phase1 : Player 1 must re-record → clear original + reversed original
-   *   phase3 → phase2 : Player 2 goes back to listen → clear imitation only
-   *   phase4 → phase3 : Player 2 re-records imitation → clear reversedImitation + pending
-   *
-   * If a recording is currently in progress it is stopped first.
-   */
+  // ── Go back — navigation only, zero data loss ─────────────────────────────
+
   const onGoBack = useCallback(() => {
-    // Safety: if mic is active, abandon the recording before going back
-    if (stopRecordingRef.current) {
-      // Fire-and-forget stop so the stream is released; we ignore the result
-      stopRecordingRef.current().catch(() => undefined);
-      stopRecordingRef.current = null;
-    }
-    setIsRecording(false);
+    // 1. Release the mic if a recording is in progress (no data loss — the
+    //    player chose to navigate away before stopping).
+    abandonRecording();
     stopPlayback();
     setAudioError(null);
 
     setGameState((prev) => {
-      const next = goBackOnePhase(prev);
+      /*
+       * 2. Restore the pending slot for the phase we are returning to,
+       *    so the confirm panel is shown again with the existing recording.
+       *
+       *    phase2 → phase1 : restore pendingP1Asset from originalRecording
+       *                      (player sees their recording and can keep or replace it)
+       *    phase3 → phase2 : clear pendingP2Asset (was mid-recording in phase 3),
+       *                      keep imitationRecording intact
+       *    phase4 → phase3 : restore pendingP2Asset from imitationRecording
+       *                      (player sees their imitation and can keep or replace it)
+       *
+       * 3. Derived assets for the phase we are leaving are cleared because they
+       *    will be recomputed when the player re-confirms.  The SOURCE recording
+       *    is always preserved.
+       *
+       *    phase2 → phase1 : clear reversedOriginal  (recomputed on re-confirm)
+       *    phase3 → phase2 : no derived asset to clear
+       *    phase4 → phase3 : clear reversedImitation (recomputed on re-confirm)
+       */
+      switch (prev.phase) {
+        case 'phase2':
+          // Restore P1's recording into the pending slot so the confirm panel shows
+          setAudioAssets((assets) => {
+            if (assets.originalRecording) {
+              setPendingP1Asset(assets.originalRecording);
+            }
+            // Clear only the derived asset; the source stays intact
+            return { ...assets, reversedOriginal: null };
+          });
+          break;
 
-      // Clear assets that belong to the phase we are leaving
-      setAudioAssets((assets) => {
-        switch (prev.phase) {
-          case 'phase2':
-            // Going back to phase1 — player 1 re-records everything
-            return {
-              ...assets,
-              originalRecording: null,
-              reversedOriginal: null,
-            };
-          case 'phase3':
-            // Going back to phase2 — keep original, clear imitation
-            return {
-              ...assets,
-              imitationRecording: null,
-              reversedImitation: null,
-            };
-          case 'phase4':
-            // Going back to phase3 — keep imitation, only clear reversed result
-            return {
-              ...assets,
-              reversedImitation: null,
-            };
-          default:
-            return assets;
-        }
-      });
+        case 'phase3':
+          // Discard any half-started imitation from this phase visit
+          setPendingP2Asset(null);
+          // imitationRecording is still null at this point (not yet confirmed),
+          // so nothing else needs clearing
+          break;
 
-      // Also clear any pending confirmation state
-      setPendingP1Asset(null);
-      setPendingP2Asset(null);
+        case 'phase4':
+          // Restore P2's imitation into the pending slot
+          setAudioAssets((assets) => {
+            if (assets.imitationRecording) {
+              setPendingP2Asset(assets.imitationRecording);
+            }
+            // Clear only the derived asset
+            return { ...assets, reversedImitation: null };
+          });
+          break;
 
-      return next;
+        default:
+          break;
+      }
+
+      return goBackOnePhase(prev);
     });
-  }, [stopPlayback]);
+  }, [abandonRecording, stopPlayback]);
+
+  // ── Return ────────────────────────────────────────────────────────────────
 
   return {
     gameState,

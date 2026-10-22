@@ -119,7 +119,7 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
               Joueur 1 : prononcez clairement un mot, un nom ou une phrase.
             </p>
 
-            {/* Sub-state A: no pending recording yet → show record button */}
+            {/* Sub-state A: no recording yet → show record button */}
             {!pendingP1Asset && (
               <div className={styles.recordingArea}>
                 <RecordButton
@@ -134,13 +134,15 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
               </div>
             )}
 
-            {/* Sub-state B: recording stopped, waiting for player to confirm */}
+            {/* Sub-state B: recording ready — confirm or replace
+                This state is shown both after a fresh stop AND after going
+                back from phase 2, so the player can keep their recording. */}
             {pendingP1Asset && !isProcessing && (
               <div className={styles.confirmBox} role="region" aria-label="Confirmer l'enregistrement">
-                <p className={styles.confirmTitle}>✅ Enregistrement terminé</p>
+                <p className={styles.confirmTitle}>🎵 Enregistrement prêt</p>
                 <p className={styles.confirmDesc}>
                   Durée : <strong>{pendingP1Asset.durationSeconds.toFixed(1)}s</strong>
-                  {' '}— Écoutez-le avant de confirmer.
+                  {' '}— Écoutez-le, puis confirmez ou recommencez.
                 </p>
 
                 <AudioPlayer
@@ -157,9 +159,9 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
                     variant="secondary"
                     size="md"
                     onClick={onRetakeRecordingP1}
-                    aria-label="Recommencer l'enregistrement"
+                    aria-label="Enregistrer un nouveau vocal"
                   >
-                    🔄 Recommencer
+                    🔄 Remplacer
                   </Button>
                   <Button
                     variant="primary"
@@ -173,7 +175,6 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
               </div>
             )}
 
-            {/* Processing spinner while reversing */}
             {pendingP1Asset && isProcessing && (
               <p className={styles.hint} aria-live="polite">⏳ Inversion en cours…</p>
             )}
@@ -244,13 +245,14 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
               </div>
             )}
 
-            {/* Sub-state B: confirm or retake imitation */}
+            {/* Sub-state B: confirm or retake imitation
+                Also shown when returning from phase 4 with an existing imitation. */}
             {pendingP2Asset && !isProcessing && (
               <div className={styles.confirmBox} role="region" aria-label="Confirmer l'imitation">
-                <p className={styles.confirmTitle}>✅ Imitation enregistrée</p>
+                <p className={styles.confirmTitle}>🎵 Imitation prête</p>
                 <p className={styles.confirmDesc}>
                   Durée : <strong>{pendingP2Asset.durationSeconds.toFixed(1)}s</strong>
-                  {' '}— Écoutez-la avant de confirmer.
+                  {' '}— Écoutez-la, puis confirmez ou recommencez.
                 </p>
 
                 <AudioPlayer
@@ -267,9 +269,9 @@ export function GameScreen(props: GameScreenProps): React.ReactElement {
                     variant="secondary"
                     size="md"
                     onClick={onRetakeRecordingP2}
-                    aria-label="Recommencer l'imitation"
+                    aria-label="Enregistrer une nouvelle imitation"
                   >
-                    🔄 Recommencer
+                    🔄 Remplacer
                   </Button>
                   <Button
                     variant="primary"
