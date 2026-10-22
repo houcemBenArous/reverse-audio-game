@@ -3,8 +3,6 @@
  *
  * Central React hook that orchestrates the entire game session.
  * Connects game state transitions, audio recording, decoding, reversal and playback.
- *
- * Components should consume this hook via GameContext (see App.tsx).
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -41,34 +39,64 @@ import type { Player } from '@audio/player';
 export interface UseGameReturn {
   gameState: GameState;
   audioAssets: GameAudioAssets;
-  /** True while an audio operation (decode/reverse/playback) is in progress. */
+  /** True while an audio operation (decode/reverse) is in progress. */
   isProcessing: boolean;
   /** The current audio error, if any. */
   audioError: AudioError | null;
-  /** True if recording is currently active. */
+  /** True if microphone recording is currently active. */
   isRecording: boolean;
   /** True if audio is currently playing. */
   isPlaying: boolean;
   /** Browser compatibility issues detected on startup. */
   compatibilityError: string | null;
 
+  /**
+   * Phase 1 confirmation state.
+   * After Player 1 stops recording, the recording is held here for preview
+   * before being confirmed. Null means no pending recording.
+   */
+  pendingP1Asset: AudioAsset | null;
+  /**
+   * Phase 3 confirmation state — same pattern for Player 2's imitation.
+   */
+  pendingP2Asset: AudioAsset | null;
+
   // --- Actions ---
   onStartGame: () => void;
-  /** Phase 1: Player 1 starts/stops recording. */
+
+  /** Phase 1: record */
   onStartRecordingP1: () => Promise<void>;
+  /** Phase 1: stop mic — moves recording into pendingP1Asset for preview */
   onStopRecordingP1: () => Promise<void>;
-  /** Phase 2: Player 2 listens to the reversed original. */
+  /** Phase 1: listen to the pending recording before confirming */
+  onListenPendingP1: () => Promise<void>;
+  /** Phase 1: discard pending recording and re-record */
+  onRetakeRecordingP1: () => void;
+  /** Phase 1: accept pending recording, reverse it, advance to phase 2 */
+  onConfirmRecordingP1: () => Promise<void>;
+
+  /** Phase 2: listen reversed */
   onListenReversed: () => Promise<void>;
   onStopListening: () => void;
   onReadyToImitate: () => void;
-  /** Phase 3: Player 2 starts/stops recording their imitation. */
+
+  /** Phase 3: record imitation */
   onStartRecordingP2: () => Promise<void>;
+  /** Phase 3: stop mic — moves imitation into pendingP2Asset for preview */
   onStopRecordingP2: () => Promise<void>;
-  /** Phase 4: Listen to the reversed imitation. */
+  /** Phase 3: listen to the pending imitation before confirming */
+  onListenPendingP2: () => Promise<void>;
+  /** Phase 3: discard pending imitation and re-record */
+  onRetakeRecordingP2: () => void;
+  /** Phase 3: accept pending imitation, reverse it, advance to phase 4 */
+  onConfirmRecordingP2: () => Promise<void>;
+
+  /** Phase 4 */
   onListenResult: () => Promise<void>;
   onStopResult: () => void;
   onGoToResultScreen: () => void;
-  /** Result screen. */
+
+  /** Result screen */
   onRevealSecret: () => void;
   onListenOriginal: () => Promise<void>;
   onNewGame: () => void;
@@ -76,7 +104,7 @@ export interface UseGameReturn {
 }
 
 // ---------------------------------------------------------------------------
-// Empty assets
+// Helpers
 // ---------------------------------------------------------------------------
 
 const emptyAssets: GameAudioAssets = {
@@ -99,11 +127,14 @@ export function useGame(): UseGameReturn {
   const [isPlaying, setIsPlaying] = useState(false);
   const [compatibilityError, setCompatibilityError] = useState<string | null>(null);
 
-  // Refs for audio engine resources
+  // Pending recordings waiting for player confirmation before advancing
+  const [pendingP1Asset, setPendingP1Asset] = useState<AudioAsset | null>(null);
+  const [pendingP2Asset, setPendingP2Asset] = useState<AudioAsset | null>(null);
+
   const stopRecordingRef = useRef<(() => Promise<{ blob: Blob; durationSeconds: number }>) | null>(null);
   const playerRef = useRef<Player | null>(null);
 
-  // Check browser compatibility once on mount
+  // Check browser compatibility on mount
   useEffect(() => {
     if (!isWebAudioSupported()) {
       setCompatibilityError(
@@ -128,18 +159,17 @@ export function useGame(): UseGameReturn {
     };
   }, []);
 
-  // Helper: revoke all object URLs and clear assets
   const clearAllAssets = useCallback(() => {
     setAudioAssets(emptyAssets);
+    setPendingP1Asset(null);
+    setPendingP2Asset(null);
   }, []);
 
-  // Helper: stop any active playback
   const stopPlayback = useCallback(() => {
     playerRef.current?.stop();
     setIsPlaying(false);
   }, []);
 
-  // Helper: decode a Blob into an AudioAsset
   async function blobToAsset(blob: Blob, durationSeconds: number): Promise<AudioAsset> {
     const ctx = getAudioContext();
     const buffer = await decodeAudioBlob(blob, ctx);
@@ -147,14 +177,12 @@ export function useGame(): UseGameReturn {
     return { buffer, blob, durationSeconds };
   }
 
-  // Helper: build a reversed AudioAsset from an existing one
   async function buildReversedAsset(source: AudioAsset): Promise<AudioAsset> {
     const ctx = getAudioContext();
     const reversedBuffer = reverseAudioBuffer(source.buffer, ctx);
-    // Create a placeholder blob (the reversed audio is stored as an AudioBuffer)
     return {
       buffer: reversedBuffer,
-      blob: source.blob, // Keep source blob for reference; the reversed buffer is what matters
+      blob: source.blob,
       durationSeconds: source.durationSeconds,
     };
   }
@@ -170,9 +198,13 @@ export function useGame(): UseGameReturn {
     setGameState((s) => startGame(s));
   }, [stopPlayback, clearAllAssets]);
 
+  // --- Phase 1 ---
+
   const onStartRecordingP1 = useCallback(async () => {
     setAudioError(null);
     stopPlayback();
+    // Discard any previous pending recording when starting fresh
+    setPendingP1Asset(null);
     try {
       const recorder = createRecorder();
       const stopFn = await recorder.start();
@@ -190,18 +222,48 @@ export function useGame(): UseGameReturn {
     try {
       const result = await stopRecordingRef.current();
       stopRecordingRef.current = null;
+      // Decode the blob so the player can preview it — but do NOT advance yet
       const asset = await blobToAsset(result.blob, result.durationSeconds);
-      setAudioAssets((prev) => ({ ...prev, originalRecording: asset }));
-      // Pre-compute reversed original immediately
-      const reversed = await buildReversedAsset(asset);
-      setAudioAssets((prev) => ({ ...prev, reversedOriginal: reversed }));
-      setGameState((s) => advanceToPhase2(s));
+      setPendingP1Asset(asset);
     } catch (err) {
       setAudioError(err as AudioError);
     } finally {
       setIsProcessing(false);
     }
   }, []);
+
+  const onListenPendingP1 = useCallback(async () => {
+    if (!pendingP1Asset) return;
+    stopPlayback();
+    await playerRef.current?.play(pendingP1Asset.buffer);
+  }, [pendingP1Asset, stopPlayback]);
+
+  const onRetakeRecordingP1 = useCallback(() => {
+    // Discard the pending recording — player goes back to the record button
+    stopPlayback();
+    setPendingP1Asset(null);
+    setAudioError(null);
+  }, [stopPlayback]);
+
+  const onConfirmRecordingP1 = useCallback(async () => {
+    if (!pendingP1Asset) return;
+    stopPlayback();
+    setIsProcessing(true);
+    try {
+      // Commit to the main asset slots and compute the reversal
+      setAudioAssets((prev) => ({ ...prev, originalRecording: pendingP1Asset }));
+      const reversed = await buildReversedAsset(pendingP1Asset);
+      setAudioAssets((prev) => ({ ...prev, reversedOriginal: reversed }));
+      setPendingP1Asset(null);
+      setGameState((s) => advanceToPhase2(s));
+    } catch (err) {
+      setAudioError(err as AudioError);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [pendingP1Asset, stopPlayback]);
+
+  // --- Phase 2 ---
 
   const onListenReversed = useCallback(async () => {
     const asset = audioAssets.reversedOriginal;
@@ -220,9 +282,12 @@ export function useGame(): UseGameReturn {
     setGameState((s) => advanceToPhase3(s));
   }, [stopPlayback]);
 
+  // --- Phase 3 ---
+
   const onStartRecordingP2 = useCallback(async () => {
     setAudioError(null);
     stopPlayback();
+    setPendingP2Asset(null);
     try {
       const recorder = createRecorder();
       const stopFn = await recorder.start();
@@ -241,17 +306,45 @@ export function useGame(): UseGameReturn {
       const result = await stopRecordingRef.current();
       stopRecordingRef.current = null;
       const asset = await blobToAsset(result.blob, result.durationSeconds);
-      setAudioAssets((prev) => ({ ...prev, imitationRecording: asset }));
-      // Pre-compute reversed imitation
-      const reversed = await buildReversedAsset(asset);
-      setAudioAssets((prev) => ({ ...prev, reversedImitation: reversed }));
-      setGameState((s) => advanceToPhase4(s));
+      // Hold in pending — do NOT advance yet
+      setPendingP2Asset(asset);
     } catch (err) {
       setAudioError(err as AudioError);
     } finally {
       setIsProcessing(false);
     }
   }, []);
+
+  const onListenPendingP2 = useCallback(async () => {
+    if (!pendingP2Asset) return;
+    stopPlayback();
+    await playerRef.current?.play(pendingP2Asset.buffer);
+  }, [pendingP2Asset, stopPlayback]);
+
+  const onRetakeRecordingP2 = useCallback(() => {
+    stopPlayback();
+    setPendingP2Asset(null);
+    setAudioError(null);
+  }, [stopPlayback]);
+
+  const onConfirmRecordingP2 = useCallback(async () => {
+    if (!pendingP2Asset) return;
+    stopPlayback();
+    setIsProcessing(true);
+    try {
+      setAudioAssets((prev) => ({ ...prev, imitationRecording: pendingP2Asset }));
+      const reversed = await buildReversedAsset(pendingP2Asset);
+      setAudioAssets((prev) => ({ ...prev, reversedImitation: reversed }));
+      setPendingP2Asset(null);
+      setGameState((s) => advanceToPhase4(s));
+    } catch (err) {
+      setAudioError(err as AudioError);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [pendingP2Asset, stopPlayback]);
+
+  // --- Phase 4 ---
 
   const onListenResult = useCallback(async () => {
     const asset = audioAssets.reversedImitation;
@@ -268,6 +361,8 @@ export function useGame(): UseGameReturn {
     stopPlayback();
     setGameState((s) => advanceToResult(s));
   }, [stopPlayback]);
+
+  // --- Result ---
 
   const onRevealSecret = useCallback(() => {
     setGameState((s) => revealSecret(s));
@@ -301,14 +396,22 @@ export function useGame(): UseGameReturn {
     isRecording,
     isPlaying,
     compatibilityError,
+    pendingP1Asset,
+    pendingP2Asset,
     onStartGame,
     onStartRecordingP1,
     onStopRecordingP1,
+    onListenPendingP1,
+    onRetakeRecordingP1,
+    onConfirmRecordingP1,
     onListenReversed,
     onStopListening,
     onReadyToImitate,
     onStartRecordingP2,
     onStopRecordingP2,
+    onListenPendingP2,
+    onRetakeRecordingP2,
+    onConfirmRecordingP2,
     onListenResult,
     onStopResult,
     onGoToResultScreen,

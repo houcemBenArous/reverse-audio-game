@@ -89,3 +89,33 @@
   justify-content: center;
   padding-bottom: var(--space-md);
 }
+
+/* Confirm / retake box shown after stopping a recording */
+.confirmBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  background: var(--color-surface-alt);
+  border: 2px solid var(--color-primary-light);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  animation: fade-in var(--transition-base) ease both;
+}
+
+.confirmTitle {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.confirmDesc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--space-md);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}

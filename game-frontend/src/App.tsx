@@ -4,13 +4,15 @@ import { GameScreen } from '@components/GameScreen/GameScreen';
 import { ResultScreen } from '@components/ResultScreen/ResultScreen';
 import '@styles/global.css';
 
-/**
- * Root component.
- * Instantiates the game hook and routes to the correct screen based on game phase.
- */
 function App(): React.ReactElement {
   const game = useGame();
   const { gameState } = game;
+
+  const isGamePhase =
+    gameState.phase === 'phase1' ||
+    gameState.phase === 'phase2' ||
+    gameState.phase === 'phase3' ||
+    gameState.phase === 'phase4';
 
   return (
     <div className="app-layout">
@@ -22,10 +24,7 @@ function App(): React.ReactElement {
           />
         )}
 
-        {(gameState.phase === 'phase1' ||
-          gameState.phase === 'phase2' ||
-          gameState.phase === 'phase3' ||
-          gameState.phase === 'phase4') && (
+        {isGamePhase && (
           <GameScreen
             gameState={game.gameState}
             audioAssets={game.audioAssets}
@@ -33,13 +32,21 @@ function App(): React.ReactElement {
             audioError={game.audioError}
             isRecording={game.isRecording}
             isPlaying={game.isPlaying}
+            pendingP1Asset={game.pendingP1Asset}
+            pendingP2Asset={game.pendingP2Asset}
             onStartRecordingP1={game.onStartRecordingP1}
             onStopRecordingP1={game.onStopRecordingP1}
+            onListenPendingP1={game.onListenPendingP1}
+            onRetakeRecordingP1={game.onRetakeRecordingP1}
+            onConfirmRecordingP1={game.onConfirmRecordingP1}
             onListenReversed={game.onListenReversed}
             onStopListening={game.onStopListening}
             onReadyToImitate={game.onReadyToImitate}
             onStartRecordingP2={game.onStartRecordingP2}
             onStopRecordingP2={game.onStopRecordingP2}
+            onListenPendingP2={game.onListenPendingP2}
+            onRetakeRecordingP2={game.onRetakeRecordingP2}
+            onConfirmRecordingP2={game.onConfirmRecordingP2}
             onListenResult={game.onListenResult}
             onStopResult={game.onStopResult}
             onGoToResultScreen={game.onGoToResultScreen}
