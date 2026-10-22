@@ -1,11 +1,14 @@
 import { useGame } from '@hooks/useGame';
+import { usePWAInstall } from '@hooks/usePWAInstall';
 import { HomeScreen } from '@components/HomeScreen/HomeScreen';
 import { GameScreen } from '@components/GameScreen/GameScreen';
 import { ResultScreen } from '@components/ResultScreen/ResultScreen';
+import { InstallBanner } from '@components/InstallBanner/InstallBanner';
 import '@styles/global.css';
 
 function App(): React.ReactElement {
   const game = useGame();
+  const pwa = usePWAInstall();
   const { gameState } = game;
 
   const isGamePhase =
@@ -17,6 +20,14 @@ function App(): React.ReactElement {
   return (
     <div className="app-layout">
       <div className="page-container">
+
+        {/* PWA install banner — shown on all screens until dismissed/installed */}
+        <InstallBanner
+          installState={pwa.installState}
+          install={pwa.install}
+          dismissIOSBanner={pwa.dismissIOSBanner}
+        />
+
         {gameState.phase === 'home' && (
           <HomeScreen
             onStart={game.onStartGame}
@@ -68,6 +79,7 @@ function App(): React.ReactElement {
             onNewGame={game.onNewGame}
           />
         )}
+
       </div>
     </div>
   );

@@ -1,15 +1,34 @@
 <!doctype html>
 <html lang="fr">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Reverse Audio — le jeu où vous imitez les sons à l'envers" />
-    <meta name="theme-color" content="#6c63ff" />
-    <title>Reverse Audio</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!-- Primary meta -->
+  <title>Reverse Audio</title>
+  <meta name="description" content="Le jeu où vous imitez les sons à l'envers — jouable sans Internet !" />
+
+  <!-- PWA / theme -->
+  <meta name="theme-color" content="#6c63ff" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- Apple / iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Reverse Audio" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+  <!-- Standard icons -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+
+  <!-- The manifest is injected automatically by vite-plugin-pwa -->
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>
