@@ -1,0 +1,62 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.step:not(:last-child)::after {
+  content: '';
+  display: block;
+  width: 2rem;
+  height: 2px;
+  background: var(--color-border);
+  border-radius: 1px;
+}
+
+.step.done:not(:last-child)::after {
+  background: var(--color-primary);
+}
+
+.dot {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  transition: background var(--transition-base), color var(--transition-base);
+}
+
+.step.done .dot {
+  background: var(--color-primary);
+  color: white;
+}
+
+.step.active .dot {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 0 0 4px var(--color-primary-light);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+}
